@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*
 
-import time
+import time, sys
 
 import numpy as np
 import scipy as sp
@@ -35,10 +35,24 @@ IMAGE = np.zeros([500, 500, 3], dtype=np.uint8)
 
 WAIT = 33
 
+def rnd(value, cnm=0) :
+	out = round(value, cnm)
+	if cnm == 0 :
+		out = int(out)
+	return out
+
+def stamp() :
+	t = time.localtime()
+	stamp = [t.tm_hour, t.tm_min, t.tm_sec]
+	out = ""
+	for i in stamp :
+		s = str(i)
+		if i < 0 :
+			s = "0" + s
+		out += s
+	return out
 class App() :
 	def __init__(self) :
-		self.timestamp = 0
-
 		self.bpm = 0					# Beat Per Minute: 心拍回数/min.
 		self.rri = 0					# R-R Interval: 心拍の間隔
 
@@ -47,13 +61,13 @@ class App() :
 		self.hf_p = 0.0
 		self.lf_p = 0.0
 
+		self.heartrate_time = time.time()
+		self.heartrate_flag = False
 		self.rri_box = np.array([])		# RRIを貯める
 
 		self.gsr = 0
 
-		self.heartrate = 0
-		self.heartrate_time = time.time()
-		self.heartrate_flag = False
+
 
 		self.box = np.array([])
 
@@ -74,12 +88,12 @@ class App() :
 		value = self.hr.read()
 
 		if value > HEARTRATE_LINE :		
-			if self.heartrate_flag == 0 :							# 1回目のセンサ値の変動時のみ，計算実行
-				nowtime = time.time()								# 現在時刻
-				self.rri = (nowtime - self.heartrate_time) * 1000	# RRIを計算(mill second)
-				self.heartrate_time = nowtime						# RRI計算用時刻の更新
-				self.rri_box = np.append(self.rri_box, self.rri)	# RRIを貯めていく
-				self.bpm = 60.0 / (self.rri / 1000.0)				# RRIからBPMを逆算する
+			if self.heartrate_flag == 0 :										# 1回目のセンサ値の変動時のみ，計算実行
+				nowtime = time.time()											# 現在時刻
+				self.rri = round((nowtime - self.heartrate_time) * 1000, 2)		# RRIを計算(mill second)
+				self.heartrate_time = nowtime									# RRI計算用時刻の更新
+				self.rri_box = np.append(self.rri_box, self.rri)				# RRIを貯めていく
+				self.bpm = rnd(60.0 / (self.rri / 1000.0))						# RRIからBPMを逆算する
 
 				if calib == False :
 					self.rri_box = np.append(self.rri_box[1:], self.rri)
@@ -92,8 +106,6 @@ class App() :
 
 		else :
 			self.heartrate_flag = 0
-
-		
 
 	def psd(self) :					# 心拍の周波数成分を分析する
 		# パワースペクトラムを計算する
@@ -127,17 +139,6 @@ class App() :
 	def write(self) :
 		label = ""
 
-	def stamp(self) :
-		t = time.localtime()
-		stamp = [t.tm_hour, t.tm_min, t.tm_sec]
-		out = ""
-		for i in stamp :
-			s = str(i)
-			if i < 0 :
-				s = "0" + s
-			out += s
-		self.timestamp = out
-
 	def main(self) :
 		self.arduino_init()
 
@@ -146,7 +147,6 @@ class App() :
 
 		while True :
 			self.beat()
-			#print self.hr.read()
 			#self.psd()
 			#self.gsr()
 			#self.brain()
@@ -156,12 +156,12 @@ class App() :
 			if key == 27 :
 				break
 
-			add = np.array([self.timestamp, self.bpm, self.hf, self.lf, self.hf_p, self.lf_p])
+			add = np.array([stamp(), self.bpm, self.hf, self.lf, self.hf_p, self.lf_p])
 			self.box = np.append(self.box, add)
 
 
 		self.write()
-		exit()
+		sys.exit("")
 
 if __name__ == "__main__" :
 	app = App()
