@@ -36,6 +36,8 @@ WAIT = 33
 
 class App() :
 	def __init__(self) :
+		self.timestamp = 0
+
 		self.bpm = 0					# Beat Per Minute: 心拍回数/min.
 		self.rri = 0					# R-R Interval: 心拍の間隔
 
@@ -117,6 +119,16 @@ class App() :
 	def write(self) :
 		label = ""
 
+	def stamp(self) :
+		t = time.localtime()
+		stamp = [t.tm_hour, t.tm_min, t.tm_sec]
+		out = ""
+		for i in stamp :
+			s = str(i)
+			if i < 0 :
+				s = "0" + s
+			out += s
+		self.timestamp = out
 
 	def main() :
 		self.arduino_init()
@@ -135,7 +147,7 @@ class App() :
 			if key == 27 :
 				break
 
-			add = np.array([self.bpm, self.hf, self.lf, self.hf_p, self.lf_p])
+			add = np.array([self.timestamp, self.bpm, self.hf, self.lf, self.hf_p, self.lf_p])
 			self.box = np.append(self.box, add)
 
 
