@@ -29,7 +29,6 @@ HF_MAX = 0.4
 PORT = "/dev/cu.usbmodem1411"		# Arduino port: ls /dev/cu*
 #PORT = "/dev/cu.usbmodem1421"		# Arduino port: ls /dev/cu*
 HR = 0								# Position of Analog-pin into HR-sensor
-GSR = 4								# Position of Analog-pin into GSR-sensor
 
 WINDOW_NAME = "dst"
 IMAGE = np.zeros([500, 500, 3], dtype=np.uint8)
@@ -66,13 +65,7 @@ class App() :
 		self.heartrate_flag = False
 		self.rri_box = np.array([])		# RRIを貯める
 
-		self.gsr = 0
-
-
-
-		self.box = np.array([])
-
-		#以下脳波の成分が続く
+		self.box = np.zeros([7])
 
 	def arduino_init(self) :		# Arduinoとの接続設定
 		self.board = pyfirmata.Arduino(PORT)			# Arduino接続
@@ -104,8 +97,6 @@ class App() :
 					print("BPM: %s" %self.bpm)
 					print("RRI: %s" %self.rri)
 
-				
-			
 			self.heartrate_flag += 1
 
 		else :
@@ -130,11 +121,11 @@ class App() :
 		if self.hf == 0 :
 			self.hf_p = 0
 		else :
-			self.hf_p = self.hf*1.0 / (self.hf + self.lf)		# HFとLFの比を計算
+			self.hf_p = round(self.hf*1.0 / (self.hf + self.lf), 4)		# HFとLFの比を計算
 		if self.lf == 0 :
 			self.lf_p = 0
 		else :
-			self.lf_p = self.lf*1.0 / (self.hf + self.lf)
+			self.lf_p = round(self.lf*1.0 / (self.hf + self.lf), 4)
 
 		if DEBUG :
 			print(psd)
@@ -159,7 +150,10 @@ class App() :
 		self.rri_box = self.rri_box[-10:]
 
 	def write(self) :
-		label = ""
+		label = np.array(["TimeStamp", "BPM", "RRI", "HF", "LF", "HF(%)", "LF(%)"])
+		w = np.append(label, self.box[:, 1:])
+
+
 
 	def main(self) :
 		self.arduino_init()
@@ -169,17 +163,15 @@ class App() :
 
 		while True :
 			self.beat()
-			#self.psd()
-			#self.gsr()
-			#self.brain()
+			self.psd()
 
 			cv2.imshow(WINDOW_NAME, IMAGE)
 			key = cv2.waitKey(WAIT)
 			if key == 27 :
 				break
 
-			#add = np.array([stamp(), self.bpm, self.hf, self.lf, self.hf_p, self.lf_p])
-			#self.box = np.append(self.box, add)
+			add = np.array([stamp(), self.bpm, self.rri, self.hf, self.lf, self.hf_p, self.lf_p])
+			self.box = np.append(self.box, add, axis=1)
 
 
 		#self.write()
