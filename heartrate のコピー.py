@@ -4,7 +4,6 @@ import time, sys
 
 import numpy as np
 import scipy as sp
-from scipy import signal
 import serial, pyfirmata
 import cv2
 
@@ -34,7 +33,7 @@ GSR = 4								# Position of Analog-pin into GSR-sensor
 WINDOW_NAME = "dst"
 IMAGE = np.zeros([500, 500, 3], dtype=np.uint8)
 
-WAIT = 10
+WAIT = 33
 
 def rnd(value, cnm=0) :
 	out = round(value, cnm)
@@ -98,13 +97,10 @@ class App() :
 
 				if calib == False :
 					self.rri_box = np.append(self.rri_box[1:], self.rri)
-					self.psd()
 
 				if DEBUG :
 					print("BPM: %s" %self.bpm)
 					print("RRI: %s" %self.rri)
-
-				
 			
 			self.heartrate_flag += 1
 
@@ -114,49 +110,31 @@ class App() :
 	def psd(self) :					# 心拍の周波数成分を分析する
 		# パワースペクトラムを計算する
 		#sp.signal.lombscargle()	# 人間の心拍は一定値ではないので，Lomb-Scargleを使用する
-		#psd = sp.fftpack.fft(self.rri_box)
-		#psd = psd * psd
-		#psd, f, s = signal.spectrogram(self.rri_box, fs=0.5, nperseg=self.rri_box.shape[0])
-		psd, fxx = signal.welch(self.rri_box, fs=0.4, window="hanning", nperseg=self.rri_box.shape[0], detrend="linear")
+		#fft = np.abs(sp.fftpack.fft(self.rri_box))
+		psd = sp.signal.spectrogram(self.rri_box, nperseg=self.rri_box.shape[0])
 
 		hf1 = psd[psd<HF_MIN].shape[0]			# HF成分の数を抽出
 		hf2 = psd[psd>HF_MAX].shape[0]
 		self.hf = psd.shape[0] - hf1 - hf2
 
 		lf1 = psd[psd<LF_MIN].shape[0]			# LF成分の数を抽出
-		lf2 = psd[psd>LF_MAX].shape[0]
+		lf2 = psd[pad>LF_MAX].shape[0]
 		self.lf = psd.shape[0] - lf1 - lf2
 
-		if self.hf == 0 :
-			self.hf_p = 0
-		else :
-			self.hf_p = self.hf*1.0 / (self.hf + self.lf)		# HFとLFの比を計算
-		if self.lf == 0 :
-			self.lf_p = 0
-		else :
-			self.lf_p = self.lf*1.0 / (self.hf + self.lf)
-
-		if DEBUG :
-			print(psd)
-			print("HF: %s" %self.hf)
-			print("LF: %s" %self.lf)
-			print("HF : LF = %s, %s" %(self.hf_p, self.lf_p))
+		self.hf_p = self.hf*1.0 / (self.hf + self.lf)		# HFとLFの比を計算
+		self.lf_p = self.lf*1.0 / (self.hf + self.lf)
 
 	def beat_calib(self) :			# 心拍の初期キャリブレーション	
 		start = time.time()
 
-		while True :
+		while True :			# 10秒の間，rriを蓄積させて計算準備
 			self.beat(True)
 
-			if self.rri != 0 and self.heartrate_flag == 1 :
+			if self.rri != 0 :
 				self.rri_box = np.append(self.rri_box, self.rri)
 
-			if time.time() - start >= 15 :
-				break
-
-			time.sleep(WAIT / 1000.0)
-
-		self.rri_box = self.rri_box[-10:]
+			if time.time() - start >= 10 :
+				break			# 10秒経過したらwhileから抜け出す
 
 	def write(self) :
 		label = ""
@@ -164,8 +142,8 @@ class App() :
 	def main(self) :
 		self.arduino_init()
 
-		self.beat_calib()
-		self.psd()
+		#self.beat_calib()
+		#self.psd()
 
 		while True :
 			self.beat()
@@ -178,11 +156,11 @@ class App() :
 			if key == 27 :
 				break
 
-			#add = np.array([stamp(), self.bpm, self.hf, self.lf, self.hf_p, self.lf_p])
-			#self.box = np.append(self.box, add)
+			add = np.array([stamp(), self.bpm, self.hf, self.lf, self.hf_p, self.lf_p])
+			self.box = np.append(self.box, add)
 
 
-		#self.write()
+		self.write()
 		sys.exit("")
 
 if __name__ == "__main__" :
