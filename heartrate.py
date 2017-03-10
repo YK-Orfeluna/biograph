@@ -18,6 +18,10 @@ LF_MAX = 0.15
 HF_MIN = 0.15
 HF_MAX = 0.4
 
+CNT = 10							# RRIの数
+CNT *= -1
+C_TIME = 15							# キャリブレーションする時間
+
 PORT = "/dev/cu.usbmodem1411"		# Arduino port: ls /dev/cu*
 #PORT = "/dev/cu.usbmodem1421"		# Arduino port: ls /dev/cu*
 HR = 0								# Position of Analog-pin into HR-sensor
@@ -63,7 +67,6 @@ class App() :
 		self.heartrate_time = time.time()
 		self.heartrate_flag = False
 		self.rri_box = np.array([])		# RRIを貯める
-		self.rri_time = np.array([])
 
 		self.box = np.zeros([1, LABEL.shape[0]])
 
@@ -90,7 +93,7 @@ class App() :
 				self.bpm = rnd(60.0 / (self.rri / 1000.0))						# RRIからBPMを逆算する
 
 				if calib == False :
-					self.rri_box = self.rri_box[1:]
+					self.rri_box = self.rri_box[1:]								# RRIが一定数になるように調整
 					self.psd()
 
 				if DEBUG :
@@ -118,28 +121,12 @@ class App() :
 		self.lf = np.mean(pgram[:L])							# [L]以下はLF，それ以外はHF
 		self.hf = np.mean(pgram[L:])
 
-		self.x = x
-		self.y = y
-		self.pgram = pgram
+		if DEBUG :
+			self.x = x
+			self.y = y
+			self.pgram = pgram
 
 	def psd(self) :					# 心拍の周波数成分を分析する
-		"""
-		#psd = sp.fftpack.fft(self.rri_box)
-		#psd = psd * psd
-		#psd, fxx, sxx = signal.spectrogram(self.rri_box, fs=0.8, nperseg=self.rri_box.shape[0])
-		#psd, fxx = signal.welch(self.rri_box, fs=1.0, window="hanning", nperseg=self.rri_box.shape[0], detrend="linear")
-		#self.y = sxx
-		#self.x = psd
-
-		hf1 = psd[psd<HF_MIN].shape[0]			# HF成分の数を抽出
-		hf2 = psd[psd>HF_MAX].shape[0]
-		self.hf = psd.shape[0] - hf1 - hf2
-
-		lf1 = psd[psd<LF_MIN].shape[0]			# LF成分の数を抽出
-		lf2 = psd[psd>LF_MAX].shape[0]
-		self.lf = psd.shape[0] - lf1 - lf2
-		"""
-
 		self.lomb()
 
 		if self.hf == 0 :
@@ -162,11 +149,11 @@ class App() :
 		while True :
 			self.beat(True)
 
-			if time.time() - start >= 15 :
+			if time.time() - start >= C_TIME :
 				break
 
 			time.sleep(WAIT / 1000.0)
-		self.rri_box = self.rri_box[-10:]
+		self.rri_box = self.rri_box[CNT:]
 
 	def write(self) :
 		v = self.box[1:]
@@ -182,7 +169,6 @@ class App() :
 
 		while True :
 			self.beat()
-			#self.psd()
 
 			cv2.imshow(WINDOW_NAME, IMAGE)
 			key = cv2.waitKey(WAIT)
@@ -192,9 +178,9 @@ class App() :
 			add = np.array([[stamp(), self.bpm, self.rri, self.hf, self.lf, self.hf_p, self.lf_p]])
 			self.box = np.append(self.box, add, axis=0)
 
-		self.write()
+		self.write()			# csvに書き出し
 
-		if DEBUG :
+		if DEBUG :				# 終了時点でのRRIとPSDをプロットする
 			import matplotlib.pyplot as plt
 					
 			plt.subplot(2, 1, 1)
@@ -202,10 +188,6 @@ class App() :
 			plt.subplot(2, 1, 2)
 			plt.plot(F, self.pgram)
 			plt.show()
-			"""
-			plt.plot(self.x, self.y, 'b+')
-			plt.show()
-			"""
 
 		sys.exit("System Exit")
 
