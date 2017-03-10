@@ -24,7 +24,9 @@ C_TIME = 15							# キャリブレーションする時間
 
 PORT = "/dev/cu.usbmodem1411"		# Arduino port: ls /dev/cu*
 #PORT = "/dev/cu.usbmodem1421"		# Arduino port: ls /dev/cu*
+
 HR = 0								# Position of Analog-pin into HR-sensor
+GSR = 2								# Position of Analog-pin into GSR-sensor
 
 WINDOW_NAME = "dst"
 IMAGE = np.zeros([500, 500, 3], dtype=np.uint8)
@@ -35,7 +37,10 @@ NOUT = 10
 F = np.linspace(LF_MIN, HF_MAX, NOUT)		# 検出したい周波数帯域
 L = np.where(F<LF_MAX)[0][-1] + 1			# HFとLFの仕分け用の閾値
 
-LABEL = np.array(["TimeStamp", "BPM", "RRI", "HF", "LF", "HF(%)", "LF(%)"])
+LED_HR = 4								# 心拍確認用LED
+LED = 2									# 動作確認用LED
+
+LABEL = np.array(["TimeStamp", "GSR", "BPM", "RRI", "HF", "LF", "HF(%)", "LF(%)"])
 
 def rnd(value, cnm=0) :
 	out = round(value, cnm)
@@ -56,6 +61,9 @@ def stamp() :
 
 class App() :
 	def __init__(self) :
+		self.hr = 0						# sensor-value
+		self.galvanic = 0
+
 		self.bpm = 0					# Beat Per Minute: 心拍回数/min.
 		self.rri = 0					# R-R Interval: 心拍の間隔
 
@@ -78,7 +86,9 @@ class App() :
 		it.start()
 
 		self.hr = self.board.get_pin('a:%s:i' %HR)		# AnalogReadする
+		self.galvanic = self.board.get_pin('a:%s:i' %GSR)
 
+		self.board.digital[LED].write(1)				# Digital-pin[2]をhighに
 		print("Arduino inited")
 
 	def beat(self, calib=False) :				# 心拍センサの値から，BPMとRRIを作る
@@ -100,10 +110,13 @@ class App() :
 					print("BPM: %s" %self.bpm)
 					print("RRI: %s" %self.rri)
 
+				self.board.digital[LED_HR].write(1)
+
 			self.heartrate_flag += 1
 
 		else :
 			self.heartrate_flag = 0
+			self.board.digital[LED_HR].write(0)
 
 	def lomb(self) :				# Lomb-ScargleによるPSD計算
 		x = np.array([0])										# xは経過時間
@@ -143,11 +156,20 @@ class App() :
 			print("LF: %s" %self.lf)
 			print("HF : LF = %s : %s" %(self.hf_p, self.lf_p))
 
+	def gsr(self) :
+		value = self.galvanic.read() * 1023
+
+		if DEBUG and self.heartrate_flag == 1:
+			print("GSR: %s" %value)
+
+		return value
+
 	def beat_calib(self) :			# 心拍の初期キャリブレーション	
 		start = time.time()
 
 		while True :
 			self.beat(True)
+			self.gsr()
 
 			if time.time() - start >= C_TIME :
 				break
@@ -169,14 +191,19 @@ class App() :
 
 		while True :
 			self.beat()
+			gsr = self.gsr()
 
 			cv2.imshow(WINDOW_NAME, IMAGE)
 			key = cv2.waitKey(WAIT)
 			if key == 27 :
 				break
 
-			add = np.array([[stamp(), self.bpm, self.rri, self.hf, self.lf, self.hf_p, self.lf_p]])
-			self.box = np.append(self.box, add, axis=0)
+			if self.heartrate_flag == 1 :
+				add = np.array([[stamp(), gsr, self.bpm, self.rri, self.hf, self.lf, self.hf_p, self.lf_p]])
+				self.box = np.append(self.box, add, axis=0)
+
+		self.board.digital[LED].write(0)
+		self.board.digital[LED_HR].write(0)
 
 		self.write()			# csvに書き出し
 
