@@ -31,7 +31,7 @@ GSR = 2								# Position of Analog-pin into GSR-sensor
 WINDOW_NAME = "dst"
 IMAGE = np.zeros([500, 500, 3], dtype=np.uint8)
 
-WAIT = 10
+fps = 30
 
 NOUT = 10
 F = np.linspace(LF_MIN, HF_MAX, NOUT)		# 検出したい周波数帯域
@@ -47,6 +47,8 @@ def rnd(value, cnm=0) :
 	if cnm == 0 :
 		out = int(out)
 	return out
+
+WAIT = rnd(1000.0 / fps)
 
 def stamp() :
 	t = time.localtime()
@@ -183,6 +185,29 @@ class App() :
 		df = pd.DataFrame(v, columns=c)
 		df.to_csv("heartrate.csv", index=False, encoding="utf-8")
 
+	def plot(self) :
+		import matplotlib.pyplot as plt
+		plt.subplot(2, 1, 1)
+		plt.plot(self.x, self.y, 'b+')
+		plt.subplot(2, 1, 2)
+		plt.plot(F, self.pgram)
+		plt.show()
+
+	def finish(self) :
+		self.board.digital[LED].write(0)		# LEDの消灯
+		self.board.digital[LED_HR].write(0)
+
+		self.board.exit()						# arduinoとの通信終了
+
+		self.write()							# csvに書き出し
+
+		cv2.destroyAllWindows()
+
+		if DEBUG :								# 終了時点でのRRIとPSDをプロットする
+			self.plot()
+
+		sys.exit("System Exit")
+
 	def main(self) :
 		self.arduino_init()
 
@@ -201,22 +226,6 @@ class App() :
 			if self.heartrate_flag == 1 :
 				add = np.array([[stamp(), gsr, self.bpm, self.rri, self.hf, self.lf, self.hf_p, self.lf_p]])
 				self.box = np.append(self.box, add, axis=0)
-
-		self.board.digital[LED].write(0)
-		self.board.digital[LED_HR].write(0)
-
-		self.write()			# csvに書き出し
-
-		if DEBUG :				# 終了時点でのRRIとPSDをプロットする
-			import matplotlib.pyplot as plt
-					
-			plt.subplot(2, 1, 1)
-			plt.plot(self.x, self.y, 'b+')
-			plt.subplot(2, 1, 2)
-			plt.plot(F, self.pgram)
-			plt.show()
-
-		sys.exit("System Exit")
 
 if __name__ == "__main__" :
 	print("System Begin")
