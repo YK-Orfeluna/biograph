@@ -10,6 +10,10 @@ import serial, pyfirmata
 import cv2
 
 DEBUG = True
+#DEBUG = False
+
+GSR_FLAG = True
+#GSR_FLAG = False
 
 HEARTRATE_LINE = 0
 
@@ -223,9 +227,15 @@ class App() :
 			if key == 27 :
 				break
 
-			if self.heartrate_flag == 1 :
+			if GSR_FLAG and self.heartrate_flag == 1 :
 				add = np.array([[stamp(), gsr, self.bpm, self.rri, self.hf, self.lf, self.hf_p, self.lf_p]])
 				self.box = np.append(self.box, add, axis=0)
+
+			elif GSR_FLAG == False :
+				add = np.array([[stamp(), gsr, self.bpm, self.rri, self.hf, self.lf, self.hf_p, self.lf_p]])
+				self.box = np.append(self.box, add, axis=0)
+
+
 
 if __name__ == "__main__" :
 	print("System Begin")
