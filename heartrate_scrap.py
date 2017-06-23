@@ -30,8 +30,6 @@ CNT *= -1
 C_TIME = 10							# キャリブレーションする時間
 
 WINDOW_NAME = "HeartRate & GSR"
-IMAGE = np.zeros([500, 500, 3], dtype=np.uint8)
-IAMGE.fill(255)
 
 fps = 10
 
@@ -65,21 +63,47 @@ def stamp() :
 		out += s
 	return out
 
-cnt_p = 0
-def printR(out) :
-	global cnt_p
-	if len(str(out)) < cnt_p :
-		cleaner = " " * (cnt_p - len(str(out)))
-		sys.stdout.write("\r%s" %out+cleaner)
-	else :
-		sys.stdout.write("\r%s" %out)
-	sys.stdout.flush()
-	cnt_p = len(str(out))
+X1, Y1 = 80, 300
+X2, Y2 = 420, 470
+X3, Y3 = X1, 100
+X4, Y4 = X2, 200
+
+def make_img() :
+	global X1, X2, X3, X4
+	global Y1, Y2, Y3, Y4
+
+	black = (0, 0, 0)
+
+	fontsize = 1.5
+	font = cv2.FONT_HERSHEY_SIMPLEX
+	thikness = 5
+	linetype = cv2.LINE_AA
+
+	src = np.zeros([500, 500, 3], dtype=np.uint8)
+	src.fill(255)
+
+	cv2.rectangle(src, (X1, Y1), (X2, Y2), (180, 180, 180), -1)
+	cv2.rectangle(src, (X1, Y1), (X2, Y2), black, 10)
+
+	cv2.rectangle(src, (X3, Y3), (X4, Y4), (180, 180, 180), -1)
+	cv2.rectangle(src, (X3, Y3), (X4, Y4), black, 10)
+
+	cv2.putText(src, "Save Data", (120, 350), font, fontsize, black, thikness, linetype)
+	cv2.putText(src, "&", (220, 400), font, fontsize, black, thikness, linetype)
+	cv2.putText(src, "System Exit", (100, 450), font, fontsize, black, thikness, linetype)
+
+	cv2.putText(src, "Save Data", (120, 170), font, fontsize, black, thikness, linetype)
+
+	return src
+
 
 class App() :
-	def __init__(self, port, url="http://192.168.11.10/") :
-		self.port = port
+	def __init__(self, url="http://192.168.11.10/") :
 		self.url = url
+
+		self.img = make_img()
+		cv2.namedWindow(WINDOW_NAME)
+		cv2.setMouseCallback(WINDOW_NAME, self.click)
 		
 		self.hr = 0						# sensor-value
 		self.galvanic = 0
@@ -98,6 +122,14 @@ class App() :
 
 		self.box = np.zeros([1, LABEL.shape[0]])
 
+	def click(self, event, x, y, flags, param) :
+		if event == cv2.EVENT_LBUTTONDOWN :					# 左クリックを検知
+			if 	X1 <= x <= X2 and Y1 <= y <= Y2 :			# クリック位置が"Save Data & System Exitだった場合"
+				self.write()
+				self.finish()
+			elif X3 <= x <= X4 and Y3 <= y <= Y4 :			# クリック位置が"Save Data"だった場合
+				self.write(name=stamp())
+
 	def scraping(self) :
 		target_html = rq.get(self.url).text
 		root = lxml.html.fromstring(target_html)
@@ -106,7 +138,7 @@ class App() :
 		txt = txt.lstrip(TARGET_TXT)
 
 		value = ["", ""]
-		value = txt.stlip(",")
+		value = txt.split(",")
 
 		self.hr = int(value[0])
 		self.galvanic = int(value[1])
@@ -215,14 +247,14 @@ class App() :
 		start_time = time.time()
 		csv_flag = 1
 
-		print(LABEL[[0], 2:])
+		print(LABEL[1:])
 
 		while True :
 			self.scraping()
 			self.beat()
 			gsr = self.gsr()
 
-			cv2.imshow(WINDOW_NAME, IMAGE)
+			cv2.imshow(WINDOW_NAME, self.img)
 			key = cv2.waitKey(WAIT)
 			if key == 27 :
 				self.finish()
@@ -231,7 +263,7 @@ class App() :
 			add = np.array([[time.time(), stamp(), gsr, self.bpm, self.rri, self.hf, self.lf, self.hf_p, self.lf_p]])
 			self.box = np.append(self.box, add, axis=0)
 			if DEBUG :
-				printR(add[0][2:])
+				print(add[0][1:])
 
 			# To save data-array each 10min.
 			now_time = time.time()
