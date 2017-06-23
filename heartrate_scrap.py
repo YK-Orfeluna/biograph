@@ -3,10 +3,11 @@
 import time, sys
 
 import numpy as np
-from scipy import signal
+from scipy.signal import lombscargle
 import pandas as pd
-import serial, pyfirmata
 import cv2
+import lxml.html
+import requests as rq
 
 DEBUG = True
 #DEBUG = False
@@ -17,7 +18,7 @@ GSR_FLAG = True
 #PLOT = True
 PLOT = False
 
-HEARTRATE_LINE = 0
+HEARTRATE_LINE = 500
 
 LF_MIN = 0.05
 LF_MAX = 0.15
@@ -26,18 +27,13 @@ HF_MAX = 0.4
 
 CNT = 10							# RRIの数
 CNT *= -1
-C_TIME = 15							# キャリブレーションする時間
-
-PORT = "/dev/cu.usbmodem1411"		# Arduino port: ls /dev/cu*
-
-HR = 0								# Position of Analog-pin into HR-sensor
-GSR = 2								# Position of Analog-pin into GSR-sensor
+C_TIME = 10							# キャリブレーションする時間
 
 WINDOW_NAME = "HeartRate & GSR"
 IMAGE = np.zeros([500, 500, 3], dtype=np.uint8)
-IMAGE.fill(255)
+IAMGE.fill(255)
 
-fps = 30
+fps = 10
 
 NOUT = 10
 F = np.linspace(LF_MIN, HF_MAX, NOUT)		# 検出したい周波数帯域
@@ -46,7 +42,9 @@ L = np.where(F<LF_MAX)[0][-1] + 1			# HFとLFの仕分け用の閾値
 LED_HR = 4								# 心拍確認用LED
 LED = 2									# 動作確認用LED
 
-LABEL = np.array(["TimeStamp", "GSR", "BPM", "RRI", "HF", "LF", "HF(%)", "LF(%)"])
+LABEL = np.array(["Unix", "TimeStamp", "GSR", "BPM", "RRI", "HF", "LF", "HF(%)", "LF(%)"])
+
+TARGET_TXT = "sensorvalue="
 
 def rnd(value, cnm=0) :
 	out = round(value, cnm)
@@ -79,9 +77,10 @@ def printR(out) :
 	cnt_p = len(str(out))
 
 class App() :
-	def __init__(self, port) :
+	def __init__(self, port, url="http://192.168.11.10/") :
 		self.port = port
-
+		self.url = url
+		
 		self.hr = 0						# sensor-value
 		self.galvanic = 0
 
@@ -99,23 +98,21 @@ class App() :
 
 		self.box = np.zeros([1, LABEL.shape[0]])
 
-		self.arduino_init()
+	def scraping(self) :
+		target_html = rq.get(self.url).text
+		root = lxml.html.fromstring(target_html)
 
-	def arduino_init(self) :		# Arduinoとの接続設定
-		print("*Arduino init ...")
-		self.board = pyfirmata.Arduino(self.port)			# Arduino接続
+		txt = root.text
+		txt = txt.lstrip(TARGET_TXT)
 
-		it = pyfirmata.util.Iterator(self.board)		# AnalogReadの準備 
-		it.start()
+		value = ["", ""]
+		value = txt.stlip(",")
 
-		self.hr = self.board.get_pin('a:%s:i' %HR)		# AnalogReadする
-		self.galvanic = self.board.get_pin('a:%s:i' %GSR)
-
-		self.board.digital[LED].write(1)				# Digital-pin[2]をhighに
-		print("*Arduino inited")
+		self.hr = int(value[0])
+		self.galvanic = int(value[1])
 
 	def beat(self, calib=False) :				# 心拍センサの値から，BPMとRRIを作る
-		value = self.hr.read()
+		value = self.hr
 
 		if value > HEARTRATE_LINE :		
 			if self.heartrate_flag == 0 :										# 1回目のセンサ値の変動時のみ，計算実行
@@ -127,19 +124,12 @@ class App() :
 
 				if calib == False :
 					self.rri_box = self.rri_box[1:]								# RRIが一定数になるように調整
-					self.psd()
-
-				if DEBUG :
-					print("BPM: %s" %self.bpm)
-					print("RRI: %s" %self.rri)
-
-				self.board.digital[LED_HR].write(1)
+					self.psd(calib=calib)
 
 			self.heartrate_flag += 1
 
 		else :
 			self.heartrate_flag = 0
-			self.board.digital[LED_HR].write(0)
 
 	def lomb(self) :				# Lomb-ScargleによるPSD計算
 		x = np.array([0])										# xは経過時間
@@ -151,7 +141,7 @@ class App() :
 		
 		y = self.rri_box										# yはRRI
 
-		pgram = signal.lombscargle(x, y, F)						# Fは計測したい周波数帯域
+		pgram = lombscargle(x, y, F)							# Fは計測したい周波数帯域
 		pgram = np.sqrt(4*(pgram/normval))						# 正規化
 
 		self.lf = np.mean(pgram[:L])							# [L]以下はLF，それ以外はHF
@@ -162,7 +152,7 @@ class App() :
 			self.y = y
 			self.pgram = pgram
 
-	def psd(self) :					# 心拍の周波数成分を分析する
+	def psd(self, calib=True) :					# 心拍の周波数成分を分析する
 		self.lomb()
 
 		if self.hf == 0 :
@@ -174,23 +164,16 @@ class App() :
 		else :
 			self.lf_p = round(self.lf*1.0 / (self.hf + self.lf), 4)
 
-		if DEBUG :
-			print("HF: %s" %self.hf)
-			print("LF: %s" %self.lf)
-			print("HF : LF = %s : %s" %(self.hf_p, self.lf_p))
-
 	def gsr(self) :
-		value = self.galvanic.read() * 1023
-
-		if DEBUG and self.heartrate_flag == 1:
-			print("GSR: %s" %value)
-
+		value = self.galvanic
 		return value
 
 	def beat_calib(self) :			# 心拍の初期キャリブレーション	
+		print("* Calibration")
 		start = time.time()
 
 		while True :
+			self.scraping()
 			self.beat(True)
 			self.gsr()
 
@@ -200,7 +183,9 @@ class App() :
 			time.sleep(WAIT / 1000.0)
 		self.rri_box = self.rri_box[CNT:]
 
-	def write(self, name="heartrate") :
+		print("* done calibration")
+
+	def write(self, name="sensing") :
 		v = self.box[1:]
 		c = LABEL
 		df = pd.DataFrame(v, columns=c)
@@ -215,11 +200,6 @@ class App() :
 		plt.show()
 
 	def finish(self) :
-		self.board.digital[LED].write(0)		# LEDの消灯
-		self.board.digital[LED_HR].write(0)
-
-		self.board.exit()						# arduinoとの通信終了
-
 		self.write()							# csvに書き出し
 
 		cv2.destroyAllWindows()
@@ -231,34 +211,27 @@ class App() :
 
 	def main(self) :
 		self.beat_calib()
-		self.psd()
 
-		strat_time = time.time()
+		start_time = time.time()
+		csv_flag = 1
 
-		if DEBUG :
-			print(LABEL[[0], 1:])
+		print(LABEL[[0], 2:])
 
 		while True :
+			self.scraping()
 			self.beat()
 			gsr = self.gsr()
 
 			cv2.imshow(WINDOW_NAME, IMAGE)
 			key = cv2.waitKey(WAIT)
 			if key == 27 :
-				break
+				self.finish()
 
-			if GSR_FLAG and self.heartrate_flag == 1 :
-				add = np.array([[stamp(), gsr, self.bpm, self.rri, self.hf, self.lf, self.hf_p, self.lf_p]])
-				self.box = np.append(self.box, add, axis=0)
-				if DEBUG :
-					printR(add[[0], 1:])
-
-
-			elif GSR_FLAG == False :
-				add = np.array([[stamp(), gsr, self.bpm, self.rri, self.hf, self.lf, self.hf_p, self.lf_p]])
-				self.box = np.append(self.box, add, axis=0)
-				if DEBUG :
-					printR(add[[0], 1:])
+			
+			add = np.array([[time.time(), stamp(), gsr, self.bpm, self.rri, self.hf, self.lf, self.hf_p, self.lf_p]])
+			self.box = np.append(self.box, add, axis=0)
+			if DEBUG :
+				printR(add[0][2:])
 
 			# To save data-array each 10min.
 			now_time = time.time()
@@ -267,9 +240,9 @@ class App() :
 				start_time = now_time
 				csv_flag += 1
 
+
+
 if __name__ == "__main__" :
 	print("System Begin")
-	# portはターミナルで以下のコマンドを入力して検索する
-	# ls /dev/cu*
-	app = App(port="/dev/cu.usbmodem1411")
+	app = App()
 	app.main()
